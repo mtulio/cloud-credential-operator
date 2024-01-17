@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -279,22 +282,69 @@ func createIdentityProvider(client aws.Client, name, region, publicKeyPath, targ
 	return identityProviderARN, nil
 }
 
+func getTLSCertificatesWithProxy(urlWithPort, proxyEnv string) ([]*x509.Certificate, error) {
+
+	proxyUrl, err := url.Parse(proxyEnv)
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to parse HTTP_PROXY URL %s", urlWithPort)
+	}
+
+	// Create transport to setup proxy later.
+	tlsConfig := http.DefaultTransport.(*http.Transport).TLSClientConfig
+	transport := &http.Transport{
+		DialTLS: func(network, addr string) (net.Conn, error) {
+			conn, err := tls.Dial(network, addr, tlsConfig)
+			return conn, err
+		},
+	}
+	log.Printf("Using HTTP_PROXY=%s", proxyUrl)
+	transport.Proxy = http.ProxyURL(proxyUrl)
+	urlWithPort = fmt.Sprintf("https://%s", urlWithPort)
+
+	c := &http.Client{Transport: transport}
+	resp, err := c.Get(urlWithPort)
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to validate URL %s to check existing Identity Provider", urlWithPort)
+	}
+	if resp.TLS == nil {
+		return nil, errors.Wrapf(err, "unable to get TLS connection from URL %s", urlWithPort)
+	}
+	if resp.TLS.PeerCertificates == nil {
+		return nil, errors.Wrapf(err, "unable to get TLS PeerCertificates from connection URL %s", urlWithPort)
+	}
+
+	return resp.TLS.PeerCertificates, nil
+}
+
+func getTLSCertificates(urlWithPort string) ([]*x509.Certificate, error) {
+	conn, err := tls.Dial("tcp", urlWithPort, &tls.Config{})
+	if err != nil {
+		return nil, err
+	}
+
+	return conn.ConnectionState().PeerCertificates, nil
+}
+
 func getTLSFingerprint(bucketURL string) (string, error) {
 	u, err := url.Parse(bucketURL)
 	if err != nil {
 		return "", err
 	}
 
+	var certs []*x509.Certificate
 	urlWithPort := fmt.Sprintf("%s:443", u.Host)
 
-	conn, err := tls.Dial("tcp", urlWithPort, &tls.Config{})
+	if proxyEnv := os.Getenv("HTTP_PROXY"); proxyEnv != "" {
+		log.Printf("Found proxy environment variable HTTP_PROXY=%s", proxyEnv)
+		certs, err = getTLSCertificatesWithProxy(urlWithPort, proxyEnv)
+	} else {
+		certs, err = getTLSCertificates(urlWithPort)
+	}
 	if err != nil {
-		return "", err
+		return "", errors.Wrapf(err, "error validating TLS Fingerprint")
 	}
 
-	certs := conn.ConnectionState().PeerCertificates
 	numCerts := len(certs)
-
 	fingerprint := sha1.Sum(certs[numCerts-1].Raw)
 	var buf bytes.Buffer
 	for _, f := range fingerprint {
