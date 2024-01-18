@@ -297,7 +297,7 @@ func getTLSCertificatesWithProxy(urlWithPort, proxyEnv string) ([]*x509.Certific
 			return conn, err
 		},
 	}
-	log.Printf("Using HTTP_PROXY=%s", proxyUrl)
+	log.Printf("Using HTTP_PROXY=%s", proxyEnv)
 	transport.Proxy = http.ProxyURL(proxyUrl)
 	urlWithPort = fmt.Sprintf("https://%s", urlWithPort)
 
@@ -617,26 +617,24 @@ func createOIDCEndpoint(client aws.Client, bucketName, name, region, targetDir s
 				}
 				log.Printf("Blocked public access for the bucket %s", bucketName)
 
+				// Origin setup (backend)
 				cloudFrontDistributionDomainName := fmt.Sprintf("%s.s3.%s.%s", bucketName, region, dnsSuffix)
 				cloudFrontDistributionOriginAccessIdentity := fmt.Sprintf("origin-access-identity/cloudfront/%s", originAccessIdentityID)
-				createCloudFrontDistributionOutput, err := client.CreateCloudFrontDistributionWithTags(&cloudfront.CreateDistributionWithTagsInput{
+
+				// Viewer setup (frontend)
+				origin := &cloudfront.Origin{
+					Id:         awssdk.String(s3BucketURL),
+					DomainName: awssdk.String(cloudFrontDistributionDomainName),
+					S3OriginConfig: &cloudfront.S3OriginConfig{
+						OriginAccessIdentity: awssdk.String(cloudFrontDistributionOriginAccessIdentity),
+					},
+				}
+				distributionInput := &cloudfront.CreateDistributionWithTagsInput{
 					DistributionConfigWithTags: &cloudfront.DistributionConfigWithTags{
 						DistributionConfig: &cloudfront.DistributionConfig{
 							CallerReference: awssdk.String(name),
 							Comment:         awssdk.String(fmt.Sprintf("%s/%s", ccoctlAWSResourceTagKeyPrefix, name)),
-							Origins: &cloudfront.Origins{
-								Items: []*cloudfront.Origin{
-									{
-										Id:         awssdk.String(s3BucketURL),
-										DomainName: awssdk.String(cloudFrontDistributionDomainName),
-										S3OriginConfig: &cloudfront.S3OriginConfig{
-											OriginAccessIdentity: awssdk.String(cloudFrontDistributionOriginAccessIdentity),
-										},
-									},
-								},
-								Quantity: awssdk.Int64(1),
-							},
-							Enabled: awssdk.Bool(true),
+							Enabled:         awssdk.Bool(true),
 							DefaultCacheBehavior: &cloudfront.DefaultCacheBehavior{
 								AllowedMethods: &cloudfront.AllowedMethods{
 									Quantity: awssdk.Int64(2),
@@ -673,7 +671,32 @@ func createOIDCEndpoint(client aws.Client, bucketName, name, region, targetDir s
 							},
 						},
 					},
-				})
+				}
+				if OidcEndpointDomain != "" {
+					cert := &cloudfront.ViewerCertificate{
+						CloudFrontDefaultCertificate: awssdk.Bool(false),
+						MinimumProtocolVersion:       awssdk.String("TLSv1"),
+						SSLSupportMethod:             awssdk.String("sni-only"),
+					}
+					// assuning validations previously done
+					if OidcEndpointACMCertificateArn {
+						cert.ACMCertificateArn = awssdk.String(OidcEndpointACMCertificateArn)
+					} else if OidcEndpointIAMCertificateId {
+						cert.IAMCertificateId = awssdk.String(OidcEndpointIAMCertificateId)
+					} else {
+						// TODO create custom certificate on ACM if us-east-1
+					}
+					distributionInput.DistributionConfigWithTags.DistributionConfig.ViewerCertificate = cert
+				}
+				if OidcBucketPath != "" {
+
+				}
+				distributionInput.DistributionConfigWithTags.DistributionConfig.Origins = &cloudfront.Origins{
+					Items:    []*cloudfront.Origin{origin},
+					Quantity: awssdk.Int64(1),
+				}
+
+				createCloudFrontDistributionOutput, err := client.CreateCloudFrontDistributionWithTags(distributionInput)
 				if err != nil {
 					return "", errors.Wrapf(err, "failed to create CloudFront Distribution")
 				}
@@ -815,7 +838,11 @@ func NewCreateIdentityProviderCmd() *cobra.Command {
 	createIdentityProviderCmd.PersistentFlags().StringVar(&CreateIdentityProviderOpts.PublicKeyPath, "public-key-file", "", "Path to public ServiceAccount signing key")
 	createIdentityProviderCmd.PersistentFlags().BoolVar(&CreateIdentityProviderOpts.DryRun, "dry-run", false, "Skip creating objects, and just save what would have been created into files")
 	createIdentityProviderCmd.PersistentFlags().StringVar(&CreateIdentityProviderOpts.TargetDir, "output-dir", "", "Directory to place generated files (defaults to current directory)")
-	createIdentityProviderCmd.PersistentFlags().BoolVar(&CreateIdentityProviderOpts.CreatePrivateS3Bucket, "create-private-s3-bucket", false, "Create private S3 bucket with public CloudFront OIDC endpoint")
+	createIdentityProviderCmd.PersistentFlags().BoolVar(&CreateAllOpts.CreatePrivateS3Bucket, "create-private-s3-bucket", false, "[DEPRECATED by oidc-endpoint-type] Create private S3 bucket with public CloudFront OIDC endpoint")
+	createIdentityProviderCmd.PersistentFlags().StringVar(&CreateIdentityProviderOpts.OidcEndpointType, "oidc-endpoint-type", "s3", "Create private S3 bucket with public CloudFront OIDC endpoint")
+	createIdentityProviderCmd.PersistentFlags().StringVar(&CreateIdentityProviderOpts.OidcEndpointDomain, "oidc-endpoint-domain", "", "Set custom OIDC endpoint DNS domain for CloudFront OIDC endpoint")
+	createIdentityProviderCmd.PersistentFlags().StringVar(&CreateIdentityProviderOpts.OidcEndpointPath, "oidc-endpoint-path", "", "Set custom OIDC endpoint path for CloudFront OIDC endpoint")
+	createIdentityProviderCmd.PersistentFlags().StringVar(&CreateIdentityProviderOpts.OidcEndpointDomainCertArn, "oidc-endpoint-domain-cert-arn", "", "Use existing ACM Certificate for CloudFront OIDC endpoint")
 
 	return createIdentityProviderCmd
 }

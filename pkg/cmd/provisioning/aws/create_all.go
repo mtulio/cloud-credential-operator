@@ -105,7 +105,14 @@ func NewCreateAllCmd() *cobra.Command {
 	createAllCmd.MarkPersistentFlagRequired("credentials-requests-dir")
 	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.TargetDir, "output-dir", "", "Directory to place generated files (defaults to current directory)")
 	createAllCmd.PersistentFlags().BoolVar(&CreateAllOpts.EnableTechPreview, "enable-tech-preview", false, "Opt into processing CredentialsRequests marked as tech-preview")
-	createAllCmd.PersistentFlags().BoolVar(&CreateAllOpts.CreatePrivateS3Bucket, "create-private-s3-bucket", false, "Create private S3 bucket with public CloudFront OIDC endpoint")
+	createAllCmd.PersistentFlags().BoolVar(&CreateAllOpts.CreatePrivateS3Bucket, "create-private-s3-bucket", false, "[DEPRECATED by oidc-endpoint-type] Create private S3 bucket with public CloudFront OIDC endpoint")
+	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.OidcBucketName, "oidc-bucket-name", "", "Use existing S3 bucket to store JWKS documents")
+	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.OidcBucketPath, "oidc-bucket-path", "/", "Create object path in existing S3 buckets to store JWKS.")
+	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.OidcEndpointType, "oidc-endpoint-type", "s3", "Create private S3 bucket with public CloudFront OIDC endpoint")
+	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.OidcEndpointDomain, "oidc-endpoint-domain", "", "Set custom OIDC endpoint DNS domain for CloudFront OIDC endpoint")
+	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.OidcEndpointPath, "oidc-endpoint-path", "", "Set custom OIDC endpoint path for CloudFront OIDC endpoint")
+	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.OidcEndpointACMCertificateArn, "oidc-endpoint-domain-cert-acm-arn", "", "Use existing Certificate stored on ACM for CloudFront OIDC endpoint")
+	createAllCmd.PersistentFlags().StringVar(&CreateAllOpts.OidcEndpointIAMCertificateId, "oidc-endpoint-domain-cert-iam-id", "", "IAM Certificate ID when using custom OIDC Domain for CloudFront OIDC endpoint")
 
 	return createAllCmd
 }

@@ -10,16 +10,23 @@ import (
 )
 
 type options struct {
-	TargetDir              string
-	PublicKeyPath          string
-	Region                 string
-	Name                   string
-	CredRequestDir         string
-	IdentityProviderARN    string
-	PermissionsBoundaryARN string
-	DryRun                 bool
-	EnableTechPreview      bool
-	CreatePrivateS3Bucket  bool
+	TargetDir                     string
+	PublicKeyPath                 string
+	Region                        string
+	Name                          string
+	CredRequestDir                string
+	IdentityProviderARN           string
+	PermissionsBoundaryARN        string
+	DryRun                        bool
+	EnableTechPreview             bool
+	CreatePrivateS3Bucket         bool
+	OidcEndpointType              string
+	OidcEndpointDomain            string
+	OidcEndpointPath              string
+	OidcEndpointACMCertificateArn string
+	OidcEndpointIAMCertificateId  string
+	OidcBucketName                string
+	OidcBucketPath                string
 }
 
 // NewAWSCmd implements the "aws" subcommand for the credentials provisioning
